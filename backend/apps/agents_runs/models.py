@@ -2,16 +2,18 @@ from django.db import models
 import uuid
 # Create your models here.
 
-STATUS = [("CREATED", "Created"),
-    ("QUEUED", "Queued"),
-    ("RUNNING", "Running"),
-    ("COMPLETED", "Completed"),
-    ("FAILED", "Failed"),]
+
 
 
 
 
 class AgentRun(models.Model):
+    STATUS = [("CREATED", "Created"),
+    ("QUEUED", "Queued"),
+    ("RUNNING", "Running"),
+    ("COMPLETED", "Completed"),
+    ("FAILED", "Failed"),]
+    
     id = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4, 
@@ -23,7 +25,8 @@ class AgentRun(models.Model):
         related_name="agent_runs",
     )
     request = models.TextField()
-    status = models.CharField(max_length=20,choices=STATUS,default="CREATED")
+    result = models.TextField(null=True, blank=True)
+    status = models.CharField(max_length=20,choices=STATUS,default="QUEUED")
     created_at = models.DateTimeField(auto_now_add=True)
     started_at = models.DateTimeField(null=True,blank=True)
     completed_at = models.DateTimeField(null=True,blank=True)
