@@ -72,7 +72,7 @@ class AgentRunUpdateSerializers(serializers.ModelSerializer):
             if current_status == "QUEUED" and new_status == "RUNNING":
                 instance.started_at = timezone.now()
 
-            elif current_status == "RUNNING" and new_status in ["COMPLETED", "FAILED"]:
+            elif  new_status in ["COMPLETED", "FAILED"]:
                 instance.completed_at = timezone.now()
 
             instance.status = new_status

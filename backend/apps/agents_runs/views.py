@@ -1,12 +1,19 @@
 from django.shortcuts import render
 from .serializers import *
+import logging
 from rest_framework.decorators import APIView
 from django.shortcuts import get_object_or_404
 from rest_framework import status   
 from rest_framework.response import Response
 from rest_framework.serializers import Serializer
-from services.agent_run_service import execute_agent_run
+from services.agent_run_service import execute_agent_run,mark_agent_run_failed
+                                          
+from .tasks import execute_agent_run_task,claim_agent_run
+
+
+logger = logging.getLogger(__name__)
 # Create your views here.
+
 
 class AgentRunView(APIView):
     def post(self,request):
@@ -15,13 +22,29 @@ class AgentRunView(APIView):
             serializer = AgentRunSerializers(data=data)
             serializer.is_valid(raise_exception=True)
             agent_run = serializer.save()
-            ai_response = execute_agent_run(agent_run)
-            # print('agent::',agent_run)
-            # print('ai response::',ai_response)
+            try:
+                  task_result  = execute_agent_run_task.delay(str(agent_run.id))
+                  # ai_response = execute_agent_run(agent_run)
+                  # print('agent::',agent_run)
+                  # print("Celery task ID:", task_result.id)
+                  logger.info("Celery task ID::",task_result.id)
+            except Exception as er:
+                  logger.exception("Failed to enqueue AgentRun %s", agent_run.id)
+                  mark_agent_run_failed(
+                        agent_run,
+                        "Unable to queue the background task."
+                  )
+                  response_serializer = AgentRunDetailsSerializers(agent_run)
+                  return Response(
+                                    response_serializer.data,
+                                    status=status.HTTP_503_SERVICE_UNAVAILABLE
+                              )
             
             response_serializer = AgentRunDetailsSerializers(agent_run)
+            return Response(response_serializer.data, 
+                            status=status.HTTP_202_ACCEPTED)
 
-            return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+    
     def get(self,request, uuid=None):
             if uuid is not None:
                   agent_run = get_object_or_404(AgentRun,id=uuid)
