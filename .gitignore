@@ -21,3 +21,18 @@ rad.json
 *.flf
 #Test results file
 TestResults.xml
+
+backend/services/tools/__pycache__/*
+backend/apps/agents_runs/__pycache__/*
+backend/apps/agents_runs/migrations/*
+backend/apps/projects/__pycache__/*
+backend/apps/projects/migrations/__pycache__/*
+backend/apps/projects/migrations/*
+backend/config/__pycache__/*
+backend/services/__pycache__/*
+backend/__pycache__/*
+backend/services/tests/__pycache__/*
+backend/celerybeat-schedule.bak
+backend/celerybeat-schedule.dat
+backend/celerybeat-schedule.dir
+venv/*
