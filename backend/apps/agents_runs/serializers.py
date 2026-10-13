@@ -12,7 +12,16 @@ class AgentRunSerializers(serializers.ModelSerializer):
     request = serializers.CharField(allow_blank = False,required=True)
     class Meta:
         model = AgentRun
-        fields = ['project','request']
+        fields = [ "id",
+            "project",
+            "request",
+            "result",
+            "status",
+            "agent_trace",
+            "created_at",
+            "started_at",
+            "completed_at",
+            "error_msg",]
 
 class AgentRunDetailsSerializers(serializers.ModelSerializer):
     """Return details of project query in GET method"""

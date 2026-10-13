@@ -35,6 +35,7 @@ class AgentRun(models.Model):
     blank=True,
         )
     error_msg = models.TextField(null=True,blank=True)
+    agent_trace = models.JSONField(default=list, blank=True)
 
     def __str__(self):
         return f"{self.id} - {self.request}"

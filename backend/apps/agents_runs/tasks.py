@@ -63,6 +63,7 @@ def execute_agent_run_task(self, agent_run_id):
         heartbeat_thread.start()
 
         execute_agent_run(agent_run)
+        agent_run.refresh_from_db()
 
         return {
             "agent_run_id": str(agent_run.id),
@@ -70,38 +71,44 @@ def execute_agent_run_task(self, agent_run_id):
         }
 
     except SoftTimeLimitExceeded:
-        if agent_run is not None and agent_run.status == "RUNNING":
-            mark_agent_run_failed(
-                agent_run,
-                "Agent execution exceeded the allowed time.",
-            )
-        raise
+            if agent_run is not None:
+                agent_run.refresh_from_db()
+
+                if agent_run.status == "RUNNING":
+                    mark_agent_run_failed(
+                        agent_run,
+                        "Agent execution exceeded the allowed time.",
+                    )
+            raise
 
     
     except Exception as exc:
-        if agent_run is None:
+            if agent_run is None:
+                raise
+
+            agent_run.refresh_from_db()
+
+            if agent_run.status in ("COMPLETED", "FAILED"):
+                raise
+
+            
+            if (
+                is_transient_error(exc)
+                and self.request.retries < self.max_retries
+            ):
+                requeued = requeue_agent_run(agent_run, str(exc))
+
+                if requeued:
+                    raise self.retry(exc=exc)
+
+                # Re-check state if requeueing failed.
+                agent_run.refresh_from_db()
+
+                if agent_run.status in ("COMPLETED", "FAILED"):
+                    raise
+
+            mark_agent_run_failed(agent_run, str(exc))
             raise
-
-        # Never retry or overwrite a terminal run.
-        agent_run.refresh_from_db()
-
-        if agent_run.status in ("COMPLETED", "FAILED"):
-            raise
-
-        # Retry only recognized transient errors.
-        if (
-            is_transient_error(exc)
-            and self.request.retries < self.max_retries
-        ):
-            requeued = requeue_agent_run(agent_run, str(exc))
-
-            if requeued:
-                raise self.retry(exc=exc)
-
-        # Permanent error or retry limit reached.
-        mark_agent_run_failed(agent_run, str(exc))
-        raise
-
 
     finally:
         stop_heartbeat.set()
