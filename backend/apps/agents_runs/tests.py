@@ -5,6 +5,7 @@ from services.agent_run_service import execute_agent_run
 from unittest.mock import patch
 from apps.projects.models import Project
 from apps.agents_runs.models import AgentRun
+from services.agent_run_service import claim_agent_run
 from apps.agents_runs.serializers import AgentRunUpdateSerializers
 # Create your tests here.
 
@@ -268,3 +269,21 @@ class AgentRunCreateTests(APITestCase):
             self.assertEqual(response.status_code, 200)
             self.assertEqual(str(response.data["id"]), str(self.project.id))
             self.assertEqual(len(response.data["agent_runs"]), 2)        
+
+
+class ClaimAgentRunTests(TestCase):
+
+    def test_second_claim_is_rejected(self):
+        # Create a run using your existing Project fixture.
+        run = AgentRun.objects.create(
+            project=self.project,
+            request="Test research request",
+            status="QUEUED",
+        )
+
+        first_claim = claim_agent_run(run.id)
+        second_claim = claim_agent_run(run.id)
+
+        self.assertIsNotNone(first_claim)
+        self.assertEqual(first_claim.status, "RUNNING")
+        self.assertIsNone(second_claim)
