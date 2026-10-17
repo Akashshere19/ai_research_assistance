@@ -21,3 +21,24 @@ rad.json
 *.flf
 #Test results file
 TestResults.xml
+
+config/__pycache__/*
+apps/agents_runs/__pycache__/*
+
+venv/*
+backend/db.sqlite3s
+backend/config/__pycache__/__init__.cpython-310.pyc
+.env    
+backend/services/__pycache__/
+backend/apps/agents_runs/__pycache__/*
+backend/apps/agents_runs/migrations/
+backend/apps/projects/__pycache__/*
+backend/apps/projects/migrations/*
+backend/config/__pycache__/__init__.cpython-310.pyc
+backend/apps/agents_runs/__pycache__/models.cpython-310.pyc
+backend/config/__pycache__/*
+backend/apps/agents_runs/__pycache__/*
+backend/config/__pycache__/__init__.cpython-310.pyc
+backend/config/__pycache__/settings.cpython-310.pyc
+backend/config/__pycache__/urls.cpython-310.pyc
+
