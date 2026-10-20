@@ -1,9 +1,11 @@
-from .llm_service import generate_response
-from services.research_agent_service import run_research_agent
-from django.db import transaction
-from services.agent_heartbeat import update_agent_heartbeat
-from apps.agents_runs.serializers import *
 from django.utils import timezone
+from django.db import transaction
+from apps.agents_runs.serializers import *
+from .llm_service import generate_response
+from apps.documents.models import Document
+from services.agent_heartbeat import update_agent_heartbeat
+from services.research_agent_service import run_research_agent
+
 
 
 def execute_agent_run(agent_run):
@@ -11,8 +13,19 @@ def execute_agent_run(agent_run):
 
     try:
         
-        
-        ai_response = run_research_agent(agent_run.request)
+        project = agent_run.project
+
+        allowed_document_ids = Document.objects.filter(
+            project_id=project.id,
+            uploaded_by_id=project.owner_id,
+            status="READY",
+        ).values_list("id", flat=True)
+
+        ai_response = run_research_agent(
+            question=agent_run.request,
+            project_id=str(project.id),
+            allowed_document_ids=allowed_document_ids,
+            )
 
         with transaction.atomic():
             locked_run = AgentRun.objects.select_for_update().get(

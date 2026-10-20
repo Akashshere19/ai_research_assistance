@@ -59,12 +59,3 @@ def retrieve_relevant_chunks(
     )
 
     return results[:top_k]
-
-# def retrieve_relevant_chunks(
-#     question: str,
-#     document_id=None,
-#     allowed_document_ids=None,
-#     top_k: int = 5,
-#     min_similarity: float = 0.35,
-# ) -> list[dict]:
-    

@@ -1,8 +1,15 @@
-from services import extract_document_content
+# from services import extract_document_content
 
-text = extract_document_content(
-    "/home/akash/ai_research_assistance/backend/media/rag_documents/2026/10/Spaceo_M1_Technical_Specification_Government_Tender_jfZcWcY.docx",
-    "docx",
-)
+# text = extract_document_content(
+#     "/home/akash/ai_research_assistance/backend/media/rag_documents/2026/10/Spaceo_M1_Technical_Specification_Government_Tender_jfZcWcY.docx",
+#     "docx",
+# )
 
-print(text[:2000])
+# print(text[:2000])
+
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+print(os.environ.get("GROQ_API_KEY"))

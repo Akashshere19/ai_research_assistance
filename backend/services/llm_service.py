@@ -4,7 +4,7 @@ from langchain_groq import ChatGroq
 from services.tools.capital_tool import get_capital
 from services.tools.search_tool import web_search
 
-load_dotenv()
+load_dotenv(override=True)
 
 def generate_response(prompt: str) -> str:
         model = ChatGroq(

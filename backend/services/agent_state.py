@@ -12,3 +12,8 @@ class AgentState(TypedDict):
         revision_feedback: str          
         agent_trace: list[dict]
         analysis: ResearchAnalysis | None
+
+        # RAG integration
+        project_id: str | None
+        allowed_document_ids: list[str]
+        document_results: list[dict]
