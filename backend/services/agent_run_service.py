@@ -67,14 +67,9 @@ def execute_agent_run(agent_run):
 
                 agent_run.error_msg = str(exc)
                 agent_run.agent_trace = agent_trace
-                agent_run.completed_at = timezone.now()
-                agent_run.save(
-                    update_fields=[
-                        "error_msg",
-                        "agent_trace",
-                        "completed_at",
-                    ]
-                )
+                # The Celery task owns retry/failure state transitions. Do not
+                # mark completion here: transient failures may be retried.
+                agent_run.save(update_fields=["error_msg", "agent_trace"])
 
         except Exception:
             # Preserve the original exception.
@@ -122,6 +117,7 @@ def claim_agent_run(agent_run_id):
             if locked_run.status != "QUEUED":
                 return None
 
+
             status_serializer = AgentRunUpdateSerializers(
                 locked_run,
                 data={"status": "RUNNING"},
@@ -131,9 +127,14 @@ def claim_agent_run(agent_run_id):
             status_serializer.save()
             locked_run.started_at = timezone.now()
             locked_run.last_heartbeat_at = timezone.now()
-            locked_run.save(update_fields=["started_at","last_heartbeat_at"])
+            locked_run.error_msg = ""
+
+            locked_run.save(
+                update_fields=["started_at", "last_heartbeat_at", "error_msg"]
+            )
 
             return locked_run
+
 
 
 
@@ -144,7 +145,6 @@ def requeue_agent_run(agent_run, error_message):
             id=agent_run.id
         )
 
-        # Only a running task can be requeued.
         if locked_run.status != "RUNNING":
             return False
 
@@ -163,5 +163,3 @@ def requeue_agent_run(agent_run, error_message):
         )
 
         return True
-
-    

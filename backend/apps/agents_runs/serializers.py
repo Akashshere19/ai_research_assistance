@@ -1,44 +1,36 @@
-from .models import *
-from ..projects.models import *
 from rest_framework import serializers
+from apps.projects.models import Project
+from .models import AgentRun
 from django.utils import timezone
 
+class AgentRunCreateSerializer(serializers.ModelSerializer):
+    """Only client-controlled input; lifecycle fields are always server-managed."""
+    project = serializers.PrimaryKeyRelatedField(queryset=Project.objects.none())
+    request = serializers.CharField(allow_blank=False, trim_whitespace=True, max_length=20000)
 
-
-# print("timezone :::",timezone.localtime(timezone.now()))
-class AgentRunSerializers(serializers.ModelSerializer):
-    project = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all(),
-        required=True)
-    request = serializers.CharField(allow_blank = False,required=True)
     class Meta:
         model = AgentRun
-        fields = [ "id",
-            "project",
-            "request",
-            "result",
-            "status",
-            "agent_trace",
-            "created_at",
-            "started_at",
-            "completed_at",
-            "error_msg",]
+        fields = ["project", "request"]
 
-class AgentRunDetailsSerializers(serializers.ModelSerializer):
-    """Return details of project query in GET method"""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        user = self.context.get("request").user if self.context.get("request") else None
+        if user is not None and user.is_authenticated:
+            projects = Project.objects.all() if user.is_superuser else Project.objects.filter(owner=user)
+            self.fields["project"].queryset = projects
+
+
+class AgentRunDetailsSerializer(serializers.ModelSerializer):
+    project = serializers.UUIDField(source="project_id", read_only=True)
+
     class Meta:
         model = AgentRun
-        read_only_fields = [
-                'id',
-                'status',
-                'created_at',
-                'started_at',
-                'completed_at',
-                'error_msg',
-        ] 
-        exclude = ["project"] 
+        fields = [
+            "id", "project", "request", "result", "status", "agent_trace",
+            "created_at", "started_at", "completed_at", "last_heartbeat_at", "error_msg",
+        ]
+        read_only_fields = fields
 
-# class AgentRunReturnStatusSerializers(serializers.ModelSerializer):
-       
 
 
 class AgentRunUpdateSerializers(serializers.ModelSerializer):
@@ -89,9 +81,19 @@ class AgentRunUpdateSerializers(serializers.ModelSerializer):
             return instance
 
 
-class ProjectRunDetailsSerializers(serializers.ModelSerializer):
-              """return all agents runs list under  project's uuid"""
-              agent_runs = AgentRunDetailsSerializers(many=True, read_only=True)
-              class Meta:
-                    model = Project 
-                    fields = ['id', 'name', 'agent_runs']
+
+
+class ProjectRunDetailsSerializer(serializers.ModelSerializer):
+    agent_runs = AgentRunDetailsSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Project
+        fields = ["id", "name", "created_at", "agent_runs"]
+        read_only_fields = fields
+
+
+class ProjectSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Project
+        fields = ["id", "name", "created_at"]
+        read_only_fields = ["id", "created_at"]

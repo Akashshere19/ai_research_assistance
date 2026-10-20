@@ -64,6 +64,14 @@ def generate_final_answer(state: AgentState):
         and item.get("result", "").strip()
     ]
 
+    sources = parse_research_sources(successful_results)
+
+    valid_source_urls = list(dict.fromkeys(
+        source["url"]
+        for source in sources
+        if source.get("url")
+    ))
+
     evidence = "\n\n".join(
         f"Research question: {item['question']}\n"
         f"Evidence and source URLs:\n{item['result']}"
@@ -124,15 +132,21 @@ def generate_final_answer(state: AgentState):
         Questions with missing or failed research:
         {json.dumps(failed_questions, ensure_ascii=False)}
 
+        Allowed source URLs:
+            {json.dumps(valid_source_urls, ensure_ascii=False)}
+
+            The sources field must contain only URLs from this allowed list.
+            Do not create, modify, or guess URLs.
+
         Produce a structured research report.
 
         Rules:
-        1. Base factual findings only on the supplied evidence.
-        2. Do not invent facts, statistics, quotations, or source URLs.
-        3. Include only URLs present in the supplied evidence.
-        4. Mention important evidence gaps and failed searches in limitations.
-        5. If evidence is insufficient, say so clearly rather than guessing.
-        6. Write a concise executive summary that answers the original request.
+            1. Base factual findings only on the supplied evidence.
+            2. Do not invent facts, statistics, quotations, or source URLs.
+            3. Include only URLs present in the supplied evidence.
+            4. Mention important evidence gaps and failed searches in limitations.
+            5. If evidence is insufficient, say so clearly rather than guessing.
+            6. Write a concise executive summary that answers the original request.
 
         Return a JSON object with exactly these fields:
         - executive_summary: string
@@ -150,6 +164,14 @@ def generate_final_answer(state: AgentState):
 
     if not report.key_findings:
         raise ValueError("Research report has no key findings.")
+    
+    invalid_urls = [url for url in report.sources if url not in valid_source_urls]
+
+    if invalid_urls:
+        raise ValueError(
+            f"Report contains URLs not found in research evidence: "
+            f"{invalid_urls}"
+        )
 
     agent_trace = agent_trace + [{
     "agent": "report_writer",
@@ -314,50 +336,106 @@ def analyze_research(state: AgentState):
             "Cannot analyze research because no usable evidence exists."
         )
 
+    sources = parse_research_sources(successful_results)
+
+    if not sources:
+        raise ValueError(
+            "Cannot analyze research because no usable sources were found."
+        )
+
     evidence = "\n\n".join(
-        f"Research question: {item['question']}\n"
-        f"Evidence and source URLs:\n{item['result']}"
-        for item in successful_results
+        f"Research question: {source['research_question']}\n"
+        f"Title: {source['title']}\n"
+        f"URL: {source['url']}\n"
+        f"Snippet: {source['snippet']}"
+        for source in sources
     )
 
-    llm = get_final_llm().with_structured_output(ResearchAnalysis)
-
     prompt = f"""
-You are the Analyst Agent in a research workflow.
+            You are the Analyst Agent in a research workflow.
 
-Analyze only the supplied research evidence.
+            Analyze only the supplied research evidence.
 
-Requirements:
-- Extract important insights supported by the evidence.
-- Identify conclusions supported by multiple sources.
-- Identify contradictions between sources.
-- Identify unanswered questions and evidence gaps.
-- Do not invent facts, citations, or sources.
-- If there is not enough evidence for a conclusion, state that clearly.
+            Requirements:
+            - Extract important insights supported by the supplied evidence.
+            - Identify conclusions supported by multiple sources.
+            - Identify contradictions between sources.
+            - Identify unanswered questions and evidence gaps.
+            - Do not invent facts, citations, or sources.
+            - Use only the supplied source URLs.
+            - Treat snippets as limited evidence, not as full article contents.
+            - Do not claim multiple independent sources confirm a finding unless
+            the supplied evidence supports that conclusion.
+            - If evidence is insufficient, explicitly state the uncertainty.
 
-Return the required ResearchAnalysis structure.
+            Return the required ResearchAnalysis structure.
 
-Research evidence:
-{evidence}
-"""
+            Research evidence:
+            {evidence}
+        """
 
+    llm = get_final_llm().with_structured_output(ResearchAnalysis)
     analysis = llm.invoke(prompt)
+
     agent_trace = list(state.get("agent_trace", []))
     agent_trace.append({
         "agent": "analyst",
         "status": "SUCCESS",
         "details": (
-            f"Identified {len(analysis.main_insights)} main insights, "
+            f"Analyzed {len(sources)} sources; "
+            f"identified {len(analysis.main_insights)} main insights, "
             f"{len(analysis.contradictions)} contradictions, and "
             f"{len(analysis.evidence_gaps)} evidence gaps"
         ),
     })
 
     return {
-    "analysis": analysis,
-    "agent_trace": agent_trace,
-}
+        "analysis": analysis,
+        "agent_trace": agent_trace,
+    }
+def parse_research_sources(research_results: list[dict]) -> list[dict]:
+    """Extract individual sources from the researcher's search-result text."""
 
+    sources = []
+
+    for item in research_results:
+        if item.get("status") != "SUCCESS":
+            continue
+
+        question = item.get("question", "")
+        result_text = item.get("result", "")
+
+        current_source = {}
+
+        for line in result_text.splitlines():
+            line = line.strip()
+
+            if line.startswith("Title:"):
+                if current_source.get("url"):
+                    sources.append({
+                        "research_question": question,
+                        **current_source,
+                    })
+
+                current_source = {
+                    "title": line.removeprefix("Title:").strip(),
+                    "url": "",
+                    "snippet": "",
+                }
+
+            elif line.startswith("URL:"):
+                current_source["url"] = line.removeprefix("URL:").strip()
+
+            elif line.startswith("Snippet:"):
+                current_source["snippet"] = line.removeprefix("Snippet:").strip()
+
+        if current_source.get("url"):
+            sources.append({
+                "research_question": question,
+                **current_source,
+            })
+
+    return sources
 
 def check_research_quality(state: AgentState):
     research_results = state.get("research_results", [])

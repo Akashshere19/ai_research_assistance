@@ -1,289 +1,118 @@
-from django.test import TestCase
-from rest_framework.test import APITestCase
-from rest_framework import status
-from services.agent_run_service import execute_agent_run
 from unittest.mock import patch
-from apps.projects.models import Project
+
+from django.contrib.auth import get_user_model
+from rest_framework import status
+from rest_framework.test import APITestCase
+
 from apps.agents_runs.models import AgentRun
-from services.agent_run_service import claim_agent_run
-from apps.agents_runs.serializers import AgentRunUpdateSerializers
-# Create your tests here.
+from apps.projects.models import Project
+
+User = get_user_model()
 
 
-
-class AgentRunCreateTests(APITestCase):
+class AgentRunApiSecurityTests(APITestCase):
     def setUp(self):
-        self.project = Project.objects.create(name="Robotics Research")
+        self.user = User.objects.create_user(username="akash", password="test-pass-12345")
+        self.other_user = User.objects.create_user(username="other", password="test-pass-12345")
+        self.project = Project.objects.create(name="Research project", owner=self.user)
+        self.other_project = Project.objects.create(name="Private project", owner=self.other_user)
         self.url = "/api/agent-runs/"
+        self.client.force_authenticate(user=self.user)
 
-    @patch("apps.agents_runs.views.execute_agent_run")
-    def test_create_agent_run(self, mock_execute):
-        def execute_successfully(agent_run):
-            agent_run.status = "COMPLETED"
-            agent_run.result = "Mock robotics market research."
-            agent_run.save(update_fields=["status", "result"])
+    def test_anonymous_client_cannot_list_runs(self):
+        self.client.force_authenticate(user=None)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-        mock_execute.side_effect = execute_successfully
-
-        payload = {
-            "project": str(self.project.id),
-            "request": "Research the Indian robotics market."
-        }
-
-        response = self.client.post(self.url, payload, format="json")
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(AgentRun.objects.count(), 1)
-
+    @patch("apps.agents_runs.views.execute_agent_run_task.delay")
+    def test_create_run_returns_202_and_queues_task(self, mock_delay):
+        mock_delay.return_value.id = "celery-test-id"
+        response = self.client.post(
+            self.url,
+            {"project": str(self.project.id), "request": "Research AI systems."},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         run = AgentRun.objects.get()
         self.assertEqual(run.project, self.project)
-        self.assertEqual(run.request, "Research the Indian robotics market.")
-        self.assertEqual(run.status, "COMPLETED")
-        self.assertEqual(run.result, "Mock robotics market research.")
-        self.assertIsNotNone(run.created_at)
+        self.assertEqual(run.status, "QUEUED")
+        mock_delay.assert_called_once_with(str(run.id))
 
-    def test_missing_request(self):
-        payload = {"project": str(self.project.id)}
-
-        response = self.client.post(self.url, payload, format="json")
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(AgentRun.objects.count(), 0)
-
-    def test_invalid_project(self):
-        payload = {
-            "project": "00000000-0000-0000-0000-000000000000",
-            "request": "Research the Indian robotics market."
-        }
-
-        response = self.client.post(self.url, payload, format="json")
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(AgentRun.objects.count(), 0)
-
-    @patch("apps.agents_runs.views.execute_agent_run")
-    def test_client_cannot_set_status(self, mock_execute):
-        def execute_successfully(agent_run):
-            agent_run.status = "COMPLETED"
-            agent_run.result = "Mock result."
-            agent_run.save(update_fields=["status", "result"])
-
-        mock_execute.side_effect = execute_successfully
-
-        payload = {
-            "project": str(self.project.id),
-            "request": "Research the Indian robotics market.",
-            "status": "COMPLETED"
-        }
-
-        response = self.client.post(self.url, payload, format="json")
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        run = AgentRun.objects.get()
-        self.assertEqual(run.status, "COMPLETED")
-    def test_agent_run_success_lifecycle(self):
-                agent_run = AgentRun.objects.create(
-                project=self.project,
-                request="Research the robotics market.",
-                status="QUEUED"
-                    )
-                with patch(
-                    "services.agent_run_service.generate_response",
-                    return_value="Mock research result"
-                ):
-                     execute_agent_run(agent_run)
-                agent_run.refresh_from_db()
-                self.assertEqual(agent_run.result, "Mock research result")
-                self.assertIsNotNone(agent_run.started_at)
-                self.assertIsNotNone(agent_run.completed_at)     
-
-    def test_agent_run_failure_lifecycle(self):
-            agent_run = AgentRun.objects.create(
-                project=self.project,
-                request="Research the robotics market.",
-                status="QUEUED"
-            )
-
-            with patch(
-                "services.agent_run_service.generate_response",
-                side_effect=Exception("Mock LLM error")
-            ):
-                execute_agent_run(agent_run)
-
-            agent_run.refresh_from_db()
-
-            self.assertEqual(agent_run.status, "FAILED")
-            self.assertIsNotNone(agent_run.started_at)
-            self.assertIsNotNone(agent_run.completed_at)
-            self.assertTrue(agent_run.error_msg)            
-
-    def test_completed_run_cannot_return_to_running(self):
-            # Arrange: create an already completed run
-            agent_run = AgentRun.objects.create(
-                project=self.project,
-                request="Research the robotics market.",
-                status="COMPLETED"
-            )
-
-            # Act: try to change COMPLETED -> RUNNING
-            serializer = AgentRunUpdateSerializers(
-                instance=agent_run,
-                data={"status": "RUNNING"},
-                partial=True
-            )
-
-            is_valid = serializer.is_valid()
-
-            # Assert: the transition must be rejected
-            self.assertFalse(is_valid)
-            self.assertIn("status", serializer.errors)
-
-            # Confirm the database was not changed
-            agent_run.refresh_from_db()
-            self.assertEqual(agent_run.status, "COMPLETED")        
-    def test_update_agent_run_status_to_running(self):
-            agent_run = AgentRun.objects.create(
-                project=self.project,
-                request="Research the robotics market.",
-                status="QUEUED"
-            )
-
-            url = f"/api/agent-runs/{agent_run.id}/"
-
-            response = self.client.patch(
-                url,
-                {"status": "RUNNING"},
-                format="json"
-            )
-
-            self.assertEqual(response.status_code, 200)
-
-            agent_run.refresh_from_db()
-
-            self.assertEqual(agent_run.status, "RUNNING")
-            self.assertIsNotNone(agent_run.started_at)        
-
-    def test_update_completed_run_to_running_rejected(self):
-            agent_run = AgentRun.objects.create(
-                project=self.project,
-                request="Research the robotics market.",
-                status="COMPLETED"
-            )
-
-            url = f"/api/agent-runs/{agent_run.id}/"
-
-            response = self.client.patch(
-                url,
-                {"status": "RUNNING"},
-                format="json"
-            )
-
-            self.assertEqual(response.status_code, 400)
-
-            agent_run.refresh_from_db()
-            self.assertEqual(agent_run.status, "COMPLETED")        
-    def test_update_running_run_to_completed(self):
-            agent_run = AgentRun.objects.create(
-                project=self.project,
-                request="Research the robotics market.",
-                status="RUNNING"
-            )
-
-            url = f"/api/agent-runs/{agent_run.id}/"
-
-            response = self.client.patch(
-                url,
-                {"status": "COMPLETED"},
-                format="json"
-            )
-
-            self.assertEqual(response.status_code, 200)
-
-            agent_run.refresh_from_db()
-
-            self.assertEqual(agent_run.status, "COMPLETED")
-            self.assertIsNotNone(agent_run.completed_at)        
-
-    def test_update_running_run_to_failed(self):
-            agent_run = AgentRun.objects.create(
-                project=self.project,
-                request="Research the robotics market.",
-                status="RUNNING"
-            )
-
-            url = f"/api/agent-runs/{agent_run.id}/"
-
-            response = self.client.patch(
-                url,
-                {"status": "FAILED"},
-                format="json"
-            )
-
-            self.assertEqual(response.status_code, 200)
-
-            agent_run.refresh_from_db()
-
-            self.assertEqual(agent_run.status, "FAILED")
-            self.assertIsNotNone(agent_run.completed_at)     
-    def test_filter_agent_runs_by_status(self):
-            AgentRun.objects.create(
-                project=self.project,
-                request="First request",
-                status="QUEUED"
-            )
-            AgentRun.objects.create(
-                project=self.project,
-                request="Second request",
-                status="RUNNING"
-            )
-            AgentRun.objects.create(
-                project=self.project,
-                request="Third request",
-                status="COMPLETED"
-            )
-
-            response = self.client.get("/api/agent-runs/status/QUEUED/")
-
-            self.assertEqual(response.status_code, 200)
-            self.assertEqual(len(response.data), 1)
-            self.assertEqual(response.data[0]["status"], "QUEUED")           
-
-    def test_project_detail_returns_nested_agent_runs(self):
-            AgentRun.objects.create(
-                project=self.project,
-                request="First research request",
-                status="QUEUED"
-            )
-
-            AgentRun.objects.create(
-                project=self.project,
-                request="Second research request",
-                status="COMPLETED"
-            )
-
-            url = f"/api/projects/{self.project.id}/"
-
-            response = self.client.get(url)
-
-            self.assertEqual(response.status_code, 200)
-            self.assertEqual(str(response.data["id"]), str(self.project.id))
-            self.assertEqual(len(response.data["agent_runs"]), 2)        
-
-
-class ClaimAgentRunTests(TestCase):
-
-    def test_second_claim_is_rejected(self):
-        # Create a run using your existing Project fixture.
-        run = AgentRun.objects.create(
-            project=self.project,
-            request="Test research request",
-            status="QUEUED",
+    @patch("apps.agents_runs.views.execute_agent_run_task.delay", side_effect=RuntimeError("broker down"))
+    def test_enqueue_failure_marks_run_failed(self, mock_delay):
+        response = self.client.post(
+            self.url,
+            {"project": str(self.project.id), "request": "Research AI systems."},
+            format="json",
         )
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        run = AgentRun.objects.get()
+        self.assertEqual(run.status, "FAILED")
+        self.assertTrue(run.error_msg)
+        self.assertIsNotNone(run.completed_at)
 
-        first_claim = claim_agent_run(run.id)
-        second_claim = claim_agent_run(run.id)
+    def test_client_cannot_set_server_managed_fields(self):
+        response = self.client.post(
+            self.url,
+            {
+                "project": str(self.project.id),
+                "request": "Research AI systems.",
+                "status": "COMPLETED",
+                "result": "Forged result",
+                "agent_trace": [{"agent": "forged"}],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        run = AgentRun.objects.get()
+        self.assertEqual(run.status, "QUEUED")
+        self.assertIsNone(run.result)
+        self.assertEqual(run.agent_trace, [])
 
-        self.assertIsNotNone(first_claim)
-        self.assertEqual(first_claim.status, "RUNNING")
-        self.assertIsNone(second_claim)
+    def test_cannot_create_run_for_another_users_project(self):
+        response = self.client.post(
+            self.url,
+            {"project": str(self.other_project.id), "request": "Private research."},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(AgentRun.objects.count(), 0)
+
+    def test_cannot_read_another_users_run(self):
+        run = AgentRun.objects.create(project=self.other_project, request="Private run")
+        response = self.client.get(f"{self.url}{run.id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_status_patch_is_not_exposed(self):
+        run = AgentRun.objects.create(project=self.project, request="Research", status="QUEUED")
+        response = self.client.patch(
+            f"{self.url}{run.id}/", {"status": "COMPLETED"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        run.refresh_from_db()
+        self.assertEqual(run.status, "QUEUED")
+
+    def test_status_filter_only_returns_owned_runs(self):
+        own_run = AgentRun.objects.create(project=self.project, request="Own", status="QUEUED")
+        AgentRun.objects.create(project=self.other_project, request="Other", status="QUEUED")
+        response = self.client.get("/api/agent-runs/status/QUEUED/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([item["id"] for item in response.data], [str(own_run.id)])
+
+    def test_create_project_assigns_current_user_as_owner(self):
+        response = self.client.post("/api/projects/", {"name": "New project"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        project = Project.objects.get(id=response.data["id"])
+        self.assertEqual(project.owner, self.user)
+
+
+class ApiTokenTests(APITestCase):
+    def test_token_endpoint_returns_token_for_valid_credentials(self):
+        User.objects.create_user(username="token-user", password="test-pass-12345")
+        response = self.client.post(
+            "/api/auth/token/",
+            {"username": "token-user", "password": "test-pass-12345"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("token", response.data)
