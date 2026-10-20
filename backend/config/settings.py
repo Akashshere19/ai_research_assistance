@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+from celery.schedules import crontab
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -135,3 +136,18 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
+
+
+
+
+CELERY_BEAT_SCHEDULE = {
+    "recover-stale-agent-runs-every-minute": {
+        "task": "services.recovery_tasks.recover_stale_agent_runs_task",
+        "schedule": crontab(minute="*"),
+    },
+}
+CELERY_IMPORTS = (
+    "services.recovery_tasks",   
+    "services.heartbeat_tasks",
+
+)
