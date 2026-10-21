@@ -6,6 +6,7 @@ from rest_framework.test import APITestCase
 
 from apps.agents_runs.models import AgentRun
 from apps.projects.models import Project
+from apps.conversations.models import Conversation
 
 User = get_user_model()
 
@@ -104,6 +105,51 @@ class AgentRunApiSecurityTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         project = Project.objects.get(id=response.data["id"])
         self.assertEqual(project.owner, self.user)
+        
+    @patch("apps.agents_runs.views.execute_agent_run_task.delay")
+    def test_create_run_with_own_conversation(self, mock_delay):
+        mock_delay.return_value.id = "celery-test-id"
+
+        conversation = Conversation.objects.create(
+            user=self.user,
+            title="Robotics Research",
+        )
+
+        response = self.client.post(
+            self.url,
+            {
+                "project": str(self.project.id),
+                "request": "Research autonomous navigation.",
+                "conversation": str(conversation.id),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+
+        run = AgentRun.objects.get()
+        self.assertEqual(run.conversation, conversation)
+        mock_delay.assert_called_once_with(str(run.id)) 
+    
+    def test_cannot_create_run_with_another_users_conversation(self):
+            other_conversation = Conversation.objects.create(
+                user=self.other_user,
+                title="Private Research",
+            )
+
+            response = self.client.post(
+                self.url,
+                {
+                    "project": str(self.project.id),
+                    "request": "Research autonomous navigation.",
+                    "conversation": str(other_conversation.id),
+                },
+                format="json",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(AgentRun.objects.count(), 0)    
+           
 
 
 class ApiTokenTests(APITestCase):

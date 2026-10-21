@@ -21,5 +21,9 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('',include('apps.agents_runs.urls')),
     path("api/", include("apps.documents.urls")),
+    path(
+    "api/conversations/",
+    include("apps.conversations.urls"),
+),
 
 ]

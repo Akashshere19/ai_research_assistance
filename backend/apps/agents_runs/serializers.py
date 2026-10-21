@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from apps.projects.models import Project
+from apps.conversations.models import Conversation
 from .models import AgentRun
 from django.utils import timezone
 
@@ -7,10 +8,15 @@ class AgentRunCreateSerializer(serializers.ModelSerializer):
     """Only client-controlled input; lifecycle fields are always server-managed."""
     project = serializers.PrimaryKeyRelatedField(queryset=Project.objects.none())
     request = serializers.CharField(allow_blank=False, trim_whitespace=True, max_length=20000)
+    conversation = serializers.PrimaryKeyRelatedField(
+                queryset=Conversation.objects.none(),
+                required=False,
+                allow_null=True,
+            )
 
     class Meta:
         model = AgentRun
-        fields = ["project", "request"]
+        fields = ["project", "request","conversation"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -18,6 +24,8 @@ class AgentRunCreateSerializer(serializers.ModelSerializer):
         if user is not None and user.is_authenticated:
             projects = Project.objects.all() if user.is_superuser else Project.objects.filter(owner=user)
             self.fields["project"].queryset = projects
+            conversations = Conversation.objects.filter(user=user)
+            self.fields["conversation"].queryset = conversations
 
 
 class AgentRunDetailsSerializer(serializers.ModelSerializer):

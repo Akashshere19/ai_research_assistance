@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     'apps.agents_runs',
     'apps.projects',
     'apps.documents',
+    'apps.conversations',
     'rest_framework',
     'rest_framework.authtoken',
 
