@@ -4,7 +4,7 @@ from services.agent_state import AgentState
 from services.agent_nodes import (revise_research_plan,
                                   generate_final_answer,plan_research, 
                                   execute_research,check_research_quality,analyze_research)
-
+from services.checkpointer import create_checkpointer
 from services.tools.capital_tool import get_capital
 from services.tools.search_tool import web_search
 
@@ -51,8 +51,8 @@ graph_builder.add_edge("revise_plan", "researcher")
 graph_builder.add_edge("analyst", "report_writer")
 graph_builder.add_edge("report_writer", END)
 
-graph = graph_builder.compile()
-
+checkpointer = create_checkpointer()
+graph = graph_builder.compile(checkpointer=checkpointer)
 
 
 

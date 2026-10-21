@@ -17,3 +17,5 @@ class AgentState(TypedDict):
         project_id: str | None
         allowed_document_ids: list[str]
         document_results: list[dict]
+
+        user_id: str | None

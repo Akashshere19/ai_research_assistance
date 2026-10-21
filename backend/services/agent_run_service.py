@@ -25,6 +25,9 @@ def execute_agent_run(agent_run):
             question=agent_run.request,
             project_id=str(project.id),
             allowed_document_ids=allowed_document_ids,
+            agent_run_id=str(agent_run.id),
+            user_id=str(project.owner_id) if project.owner_id else None,
+
             )
 
         with transaction.atomic():

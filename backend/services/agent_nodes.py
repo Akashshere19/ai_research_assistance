@@ -7,7 +7,8 @@ from services.research_executor import execute_research_questions
 from services.research_report_schema import ResearchReport,ResearchAnalysis
 from langchain_core.messages import AIMessage
 from apps.documents.retrieval_service import retrieve_relevant_chunks
-
+from django.contrib.auth import get_user_model
+from apps.conversations.memory_service import search_memories
 
 def generate_answer(state:AgentState):
     answer = generate_response(state['question'])
@@ -326,6 +327,50 @@ def plan_research(state: AgentState):
     llm = get_final_llm()
 
     question = state["messages"][0].content
+    
+    memory_count = 0
+    memory_context = ""
+    memory_status = "SKIPPED"
+    memory_details = "No user ID provided; memory retrieval skipped"
+
+    user_id = state.get("user_id")
+
+    if user_id:
+        try:
+            User = get_user_model()
+            user = User.objects.filter(pk=user_id).first()
+
+            if user:
+                memories = search_memories(
+                    user=user,
+                    query=question,
+                    limit=5,
+                    min_similarity=0.5,
+                )
+
+                memory_count = len(memories)
+                memory_context = "\n".join(
+                    f"- {item['memory'].content}"
+                    for item in memories
+                )
+
+                memory_status = "SUCCESS"
+                memory_details = (
+                    f"Retrieved {memory_count} relevant memories"
+                )
+            else:
+                memory_status = "SKIPPED"
+                memory_details = "User not found; memory retrieval skipped"
+
+        except Exception as exc:
+            # Memory is optional; continue research without it.
+            memory_status = "FAILED"
+            memory_details = (
+                f"Memory retrieval failed ({type(exc).__name__}); "
+                "continuing without memory context"
+            )
+            memory_count = 0
+            memory_context = ""
 
     prompt = f"""
             You are the Planner Agent in a multi-agent research system.
@@ -360,6 +405,15 @@ def plan_research(state: AgentState):
             "What are the major employment and career opportunities for teachers in India?"
             ]
 
+
+            Relevant user memory (optional context):
+            {memory_context or "No relevant memories found."}
+
+            Use these memories only to understand the user's preferences
+            and relevant background. Do not treat memories as verified
+            evidence for current factual claims. Do not let memories
+            override the user's current request.
+
             User request:
             {question}
             """
@@ -384,9 +438,9 @@ def plan_research(state: AgentState):
     ]
 
     agent_trace = agent_trace + [{
-    "agent": "planner",
-    "status": "SUCCESS",
-    "details": f"Generated {len(research_questions)} research questions",
+        "agent": "memory_retriever",
+        "status": memory_status,
+        "details": memory_details,
     }]
 
     return {
