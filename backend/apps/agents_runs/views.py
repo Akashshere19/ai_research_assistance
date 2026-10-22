@@ -1,5 +1,5 @@
 import logging
-
+from django.shortcuts import render
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from rest_framework import status
@@ -8,6 +8,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.authtoken.views import ObtainAuthToken
 from rest_framework.authtoken.models import Token
+from django.contrib.auth.decorators import login_required
 
 from apps.projects.models import Project
 from .models import AgentRun
@@ -104,3 +105,12 @@ class ApiTokenView(ObtainAuthToken):
         response = super().post(request, *args, **kwargs)
         token = Token.objects.get(key=response.data["token"])
         return Response({"token": token.key}, status=status.HTTP_200_OK)
+
+
+
+
+
+
+@login_required
+def research_page(request):
+    return render(request, "agents_runs/research.html")
